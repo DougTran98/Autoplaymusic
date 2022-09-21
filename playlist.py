@@ -1,7 +1,8 @@
+#import
 from genericpath import exists
 from telnetlib import VT3270REGIME
 from io import BytesIO
-import openpyxl
+from tempfile import tempdir
 import pandas as pd
 import webbrowser, time 
 import requests
@@ -13,83 +14,102 @@ import urllib.parse as urlparse
 
 
 #Read the spreadsheet
-spreadsheetId = "1glco8PeP_JmvgcEdDmDqeqHXVXQhCyqV53Dn5RPPhvE"
-url = "https://docs.google.com/spreadsheets/export?exportFormat=xlsx&id=" + spreadsheetId
-res = requests.get(url)
-data = BytesIO(res.content)
-xlsx = openpyxl.load_workbook(filename=data)
-List = pd.read_excel(data, sheet_name='List music')
-History = pd.read_excel(data, sheet_name='History')
+def readSheet():
+    spreadsheetId = "1glco8PeP_JmvgcEdDmDqeqHXVXQhCyqV53Dn5RPPhvE"
+    url = "https://docs.google.com/spreadsheets/export?exportFormat=xlsx&id=" + spreadsheetId
+    res = requests.get(url)
+    data = BytesIO(res.content)
+    List = pd.read_excel(data, sheet_name='test')
+    Backup = pd.read_excel(data, sheet_name='List backup')
+    return List, Backup
 
-API_KEY = 'AIzaSyBj3flosOnOYncUolreFO5aeTMNfeurdzQ'
-
-def getDuration (video_id):
+#get the time of video youtube
+def getDuration(video_id):
+    API_KEY = 'AIzaSyBj3flosOnOYncUolreFO5aeTMNfeurdzQ'
     respone = requests.get(f'https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id={video_id}&key={API_KEY}')
     data = respone.json()
     if not data.get('items'):
-        return -1
+        return -1 #url not exist or still exist but video cleared/hidden from youtube
     else:
         toki = data['items'][0]['contentDetails']['duration']
         duration = isodate.parse_duration(toki).total_seconds()
-        return duration
+    return duration
 
-#check and claim right data and put data of two song into array
-def getTwoSongAvailable (List):
-    linkytb = List.Music.to_string(index=False).split()
-    id_and_duration1 = []
-    id_and_duration2 = []
-    two_song_info = []
-    for temp in range (len(linkytb)):
-        if ("watch?v=" in linkytb[temp]) is True:
-            url_data = urlparse.urlparse(linkytb[temp])
-            query = urlparse.parse_qs(url_data.query)
-            video_id = query["v"][0]
+#is youtube url ?
+def isYoutubeLink(link_in_sheet):
+    if (("watch?v=" in link_in_sheet) or ("youtu.be" in link_in_sheet)):
+        return True
+    else:
+        return False
+
+#classify yoututbe url
+def classifyYoutubeLink(link_youtube):
+    if ("watch?v=" in link_youtube):
+        return 0
+    else:
+        return 1
+
+#check remain available link. Is youtube link still can play?
+def countAvailableLink(video_id, listSong):
+    client = gspread.service_account(filename="cool-plasma-362004-5043b3ab9bf9.json")
+    sh = client.open("List music") # This is file's name not a sheet name
+    wkslist = sh.worksheet("Copy List music")
+    linkytb = listSong.Music.to_string(index=False).split()
+    count = 0
+    for i in range(len(linkytb)):
+        if  isYoutubeLink(linkytb[i]) is True:
             if getDuration(video_id) == -1:
-                temp += 1
+                count = count
             else:
-                id_and_duration1.append(video_id)
-                id_and_duration1.append(getDuration(video_id))
-                two_song_info.append(id_and_duration1)
-                if len(two_song_info) == 2:
-                    break
-                else: temp += 1
-            # continue
-        elif ("youtu.be" in linkytb[temp]) is True:
-            video_id = linkytb[temp][-11:]
-            if getDuration(video_id) == -1:
-                temp += 1
-            else:
-                id_and_duration2.append(video_id)
-                id_and_duration2.append(getDuration(video_id))
-                two_song_info.append(id_and_duration2)
-                if len(two_song_info) == 2:
-                    break
-                else: temp += 1
-                # continue
+                count += 1
         else:
-            temp += 1
-            # continue
-    return (two_song_info)
-print(getTwoSongAvailable(List))
+            wkslist.delete_rows(i+1)
+    return count
 
-#run 2 top of list
-# webbrowser.open(linkytb[0])
-# time.sleep(duration1 + 7)
-# os.system("killall -9 'Google Chrome'")
-# webbrowser.open(linkytb[1])
-# time.sleep(duration2 + 13)
-# os.system("killall -9 'Google Chrome'")
+#check if need backup music or not
+def needBackUp(video_id, listSong):
+    if countAvailableLink(video_id, listSong) == 0:
+        return 2
+    if countAvailableLink(video_id, listSong) == 1:
+        return 1 
+    if countAvailableLink(video_id, listSong) >= 2:
+        return 0
 
-# #move 2 top of list to [History] after play music
-# client = gspread.service_account(filename="cool-plasma-362004-5043b3ab9bf9.json")
-# sh = client.open("List music")
-# wkslist = sh.worksheet("List")
-# wkshistory = sh.worksheet("History")
+#get ID of all available link
+def getIdFromLink(link_youtube):
+    # linkytb = listSong.Music.to_string(index=False).split()
+    if classifyYoutubeLink(link_youtube) == 1:
+        url_data = urlparse.urlparse(link_youtube)
+        query = urlparse.parse_qs(url_data.query)
+        video_id = query["v"][0]
+    else:
+        video_id = link_youtube[-11:]
+    return video_id
 
-# remove = wkslist.get('A2:C3')
+#add 2 music to array (music can be from list or backup)
+def getTwoSongAvailable(listSong):
+    linkytb = listSong.Music.to_string(index=False).split()
+    two_song_info = []
+    if needBackUp == 2:
+        two_song_info.append(getIdFromLink(readSheet()[1][0]))#them 2 bai tu backup list vao mang
+        two_song_info.append(getIdFromLink(readSheet()[1][1]))
+    if needBackUp == 1:
+        two_song_info.append(getIdFromLink(linkytb[0][0])) #them bai duy nhat trong list vao mang
+        two_song_info.append(getIdFromLink(readSheet()[1][0])) #them 1 bai tu backup list vao mang
+    if needBackUp == 0:
+        two_song_info.append(getIdFromLink(linkytb[0][0])) #them 2 bai tu trong list vao mang
+        two_song_info.append(getIdFromLink(linkytb[0][1]))
+    return two_song_info
 
-# wkshistory.append_rows(remove)
+# run 2 song in array
+def runTwoSong():
+    two_song_in_list = getTwoSongAvailable(readSheet()[0])
+    for i in range (len(two_song_in_list)):
+        webbrowser.open(f"https://www.youtube.com/watch?v={two_song_in_list[i]}")
+        time.sleep(getDuration(getIdFromLink(two_song_in_list[i])) + 9)
+        os.system("killall -9 'Google Chrome'")
+    return 
+    
 
-# wkslist.delete_rows(2)
-# wkslist.delete_rows(2)
-
+#run program
+runTwoSong()

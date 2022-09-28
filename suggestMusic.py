@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 #When user input name of music, auto return suggest link of music on youtube.
 
 from distutils.log import error
@@ -13,19 +15,13 @@ from lxml import etree
 #get and rewrite input
 key1 = input("\nInput the song or singer that make you better: ")
 key = key1.replace(' ','')
-song = ''
-for c in key:
-    if c == 'đ':
-        c = c.replace('đ','d')
-    else: 
-        if c == 'Đ':
-            c = c.replace('Đ', "D")
-        else:
-            c = unicodedata.normalize('NFKD', c).encode('latin1', 'ignore').decode('latin1')
-    song += c
+song = str(key.encode('utf-8'))
+song = song.replace('b\'', '')
+song = song.replace('\'', '')
+song = song.replace('\\x', '%')
 
 #claim all video by input
-html = urllib.request.urlopen("https://www.youtube.com/results?search_query=" + song)
+html = urllib.request.urlopen(f"https://www.youtube.com/results?search_query={song}")
 video_ids = re.findall(r"watch\?v=(\S{11})", html.read().decode())
 
 #show list video on youtube by input but not show video longer than 7 minutes (420 seconds)
